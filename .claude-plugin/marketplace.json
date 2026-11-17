@@ -1,0 +1,5 @@
+{
+  "name": "sakura-claude-mod",
+  "owner": { "name": "eszn" },
+  "plugins": [{ "name": "sakura", "source": "./" }]
+}
