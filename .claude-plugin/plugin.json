@@ -1,6 +1,6 @@
 {
   "name": "sakura",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A calm spring garden look: drifting cherry blossom petals, a blossoming branch, and blush-paper or night-garden colors that follow the system mode.",
   "types": "./types/index.d.ts"
 }

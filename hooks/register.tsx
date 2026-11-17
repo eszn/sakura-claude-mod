@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs, Timer } from 'claude-code'
 
 import { makeColors } from './make-colors.js'
+import { isMerge, isPush } from './merges.js'
 import { phaseAt, scene } from './scene.js'
 
 const SCENE = 'sakura-garden'
@@ -22,6 +23,7 @@ const { theme, problems } = makeColors({
   label: 'Sakura',
   roles: { accent: '#c9476f', danger: '#b83b46', success: '#4c7f4f', warning: '#a8721c', pro: '#7b58a0' },
   light: {
+    git: { merged: '#b8457c' },
     gray: {
       anchors: {
         'surface-0': '#faecec',
@@ -35,6 +37,7 @@ const { theme, problems } = makeColors({
   },
   dark: {
     roles: { accent: '#f2a3bd' },
+    git: { merged: '#f0a0c2' },
     gray: {
       anchors: {
         'surface-0': '#17152c',
@@ -56,21 +59,27 @@ const LOOK: ThemeSetArgs = {
   backdrop: { scene: SCENE, glass: { blur: 4, opacity: 0.6 } },
 }
 
-const breeze = atom({ plugin: 'sakura', key: 'breeze' } as const, { phase: 0, at: 0, speed: CALM, gust: -1 }, {
-  shape: 'breeze-1',
+const breeze = atom({ plugin: 'sakura', key: 'breeze' } as const, { phase: 0, at: 0, speed: CALM, gust: -1, burst: -1 }, {
+  shape: 'breeze-2',
 })
 
 // A reload starts this over, and `session.start` sets it again.
 let rest: Timer | undefined
 
 /** Changes the breeze from now on, keeping every petal where it is. */
-async function blow($: EngineInterface, speed: number, hasGust: boolean): Promise<void> {
+async function blow($: EngineInterface, speed: number, setsOff?: 'gust' | 'burst'): Promise<void> {
   const now = await $.clock.now()
 
   await update($, breeze, was => {
     const phase = phaseAt(was, now)
 
-    return { phase, at: now, speed, gust: hasGust ? phase : was.gust }
+    return {
+      phase,
+      at: now,
+      speed,
+      gust: setsOff === 'gust' ? phase : was.gust,
+      burst: setsOff === 'burst' ? phase : was.burst,
+    }
   })
 }
 
@@ -78,7 +87,7 @@ async function blow($: EngineInterface, speed: number, hasGust: boolean): Promis
 function restAfter($: EngineInterface, ms: number): void {
   rest?.cancel()
   rest = $.clock.after(ms, () => {
-    void blow($, AT_REST, false)
+    void blow($, AT_REST)
   })
 }
 
@@ -91,7 +100,7 @@ export const register: Register = on => {
       $.ui.toast(unpainted)
     }
     await $.theme.set(LOOK)
-    await blow($, CALM, false)
+    await blow($, CALM)
     restAfter($, QUIET_MS)
 
     return next(e)
@@ -101,7 +110,7 @@ export const register: Register = on => {
     if (e.agentId !== undefined) {
       return next(e)
     }
-    await blow($, BREEZY, false)
+    await blow($, BREEZY)
     restAfter($, LONG_TURN_MS)
 
     return next(e)
@@ -113,10 +122,25 @@ export const register: Register = on => {
     }
     const done = await next(e)
 
-    await blow($, CALM, e.reason === 'answer')
+    await blow($, CALM, e.reason === 'answer' ? 'gust' : undefined)
     restAfter($, QUIET_MS)
 
     return done
+  })
+
+  // A merge or a push Claude runs sets off a burst once it has gone through. One
+  // that fails, or that a guard refused, sets off nothing.
+  on('tool.call', async ($, e, next) => {
+    const command = e.tool === 'Bash' ? e.command : undefined
+    const isLanding = isMerge(e.tool, command) || isPush(e.tool, command)
+    const ran = await next(e)
+
+    if (isLanding && ran.deny === undefined && ran.isError !== true) {
+      await blow($, BREEZY, 'burst')
+      restAfter($, LONG_TURN_MS)
+    }
+
+    return ran
   })
 
   on('ui.render', { component: 'Backdrop' }, async ($, e, next) => {

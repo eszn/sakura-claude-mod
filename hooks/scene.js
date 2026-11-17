@@ -10,6 +10,8 @@ const PETAL = 'M0 10C-7 5-9-3-6-8-5-10-2-10.5 0-7 2-10.5 5-10 6-8 9-3 7 5 0 10Z'
 
 /** How long a turn-end gust can still be on screen, in seconds of calm motion. */
 const GUST_SPAN = 12
+/** The same for a merge burst, whose petals set off over a longer stretch. */
+const BURST_SPAN = 15
 
 function seeded(seed) {
   let a = seed >>> 0
@@ -205,6 +207,15 @@ const HANGING = [
   .map(([x, y, scale]) => `<path d="${PETAL}" transform="translate(${x} ${y}) rotate(${n(between(0, 360))}) scale(${scale} ${n(scale * between(0.6, 1))})" opacity=".85"/>`)
   .join('')
 
+// The burst that answers a merge: twice the petals of a gust, over the whole
+// height of the scene, setting off in a longer wave. Laid out after everything
+// else that is seeded, so adding it moved nothing that was already drawn.
+const MERGE_BURST = cluster(36, 40, 860)
+
+for (const member of MERGE_BURST.members) {
+  member.stagger *= 2.4
+}
+
 // ---- Any screen ------------------------------------------------------------
 // The scene is cropped to fill its box, so on a narrow box the corner with the
 // branch would fall outside it. These rules read the scene's own box and slide
@@ -272,11 +283,25 @@ const GROUND = `<rect width="1600" height="1000" fill="url(#sky)"/>
 <g class="st" fill="url(#pg)">${RESTING}</g></g>
 <g class="st" fill="url(#pg)">${HANGING}</g>`
 
-const PETALS = `<g class="mv" fill="url(#pg)">${FAR}${MID}${AMBIENT}<g class="tg">${TURN_GUST.out}</g>${NEAR}</g>`
+const PETALS = `<g class="mv" fill="url(#pg)">${FAR}${MID}${AMBIENT}<g class="tg">${TURN_GUST.out}</g><g class="mb">${MERGE_BURST.out}</g>${NEAR}</g>`
 
 /** The breeze's phase at `now`: seconds of calm-speed motion gone by. */
 export function phaseAt(breeze, now) {
   return breeze.phase + (breeze.speed * Math.max(0, now - breeze.at)) / 1000
+}
+
+// A one-shot cluster's timing: each petal started as far in as the breeze has
+// moved on since it set off, or the whole group left undrawn once it is over.
+function sweep(members, group, setOff, span, phase, speed) {
+  const since = setOff === undefined || setOff < 0 ? span : phase - setOff
+
+  if (since < 0 || since >= span) {
+    return `.${group}{display:none}`
+  }
+
+  return members
+    .map(member => `#${member.id}{animation:once ${n(member.length / speed)}s cubic-bezier(.37,0,.63,1) ${n((member.stagger - since) / speed)}s 1 both}`)
+    .join('')
 }
 
 /** The whole scene as one SVG document, with every petal where `breeze` puts it at `now`. */
@@ -292,15 +317,8 @@ export function scene(breeze, now) {
     timing += `#${loop.id}{animation:${loop.name} ${n(loop.base / speed)}s ${loop.rest} ${n(-into / speed)}s infinite}`
   }
 
-  const since = breeze.gust < 0 ? GUST_SPAN : phase - breeze.gust
-
-  if (since >= 0 && since < GUST_SPAN) {
-    for (const member of TURN_GUST.members) {
-      timing += `#${member.id}{animation:once ${n(member.length / speed)}s cubic-bezier(.37,0,.63,1) ${n((member.stagger - since) / speed)}s 1 both}`
-    }
-  } else {
-    timing += '.tg{display:none}'
-  }
+  timing += sweep(TURN_GUST.members, 'tg', breeze.gust, GUST_SPAN, phase, speed)
+  timing += sweep(MERGE_BURST.members, 'mb', breeze.burst, BURST_SPAN, phase, speed)
 
   if (isResting) {
     timing += '.mv *{animation-play-state:paused!important}'

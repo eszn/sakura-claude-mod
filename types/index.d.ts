@@ -11,6 +11,8 @@ export type Breeze = {
   speed: number
   /** The `phase` at which the last turn-end gust set off; -1 for none yet. */
   gust: number
+  /** The `phase` at which the last burst, for a merge or a push, set off; -1 for none yet. */
+  burst: number
 }
 
 declare module 'claude-code' {
